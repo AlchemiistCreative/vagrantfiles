@@ -1,0 +1,44 @@
+ENV['VAGRANT_DEFAULT_PROVIDER'] ||= 'libvirt'
+
+Vagrant.configure("2") do |config|
+  # Define the base box
+  base_box = "generic/rocky9"
+
+  # Define an array of VM configurations with corresponding IPs
+  options = [
+    { name: "kubemaster", memory: 2048, cpus: 2, ip: "172.16.0.10" },
+    { name: "kubenode01", memory: 2048, cpus: 2, ip: "172.16.0.11" },
+    { name: "kubenode02", memory: 2048, cpus: 2, ip: "172.16.0.12" }
+  ]
+
+
+  # Loop through the array to create VMs
+  options.each do |option|
+    config.vm.define option[:name] do |vm|
+      vm.vm.box = base_box
+      vm.vm.network "private_network", ip: option[:ip], netmask: "255.255.255.224"  # Adjusted netmask
+      vm.vm.hostname = option[:name]
+
+      case option[:name]
+      when "kubemaster"
+        vm.vm.provision "file", source: "/home/thomas-local/Projects/keys/id_rsa", destination: "/tmp/id_rsa"
+      else
+        vm.vm.provision "shell" do |s|
+          ssh_pub_key = File.readlines("/home/thomas-local/Projects/keys/id_rsa.pub").first.strip
+          s.inline = <<-SHELL
+            mkdir -p /root/.ssh
+            echo #{ssh_pub_key} >> /home/vagrant/.ssh/authorized_keys
+            echo #{ssh_pub_key} >> /root/.ssh/authorized_keys
+          SHELL
+        end    
+      end
+      vm.vm.provision "shell", path: "provision.sh", privileged: true
+
+      # Set resources for each VM
+      vm.vm.provider "libvirt" do |libvirt|
+        libvirt.memory = option[:memory]
+        libvirt.cpus = option[:cpus]
+      end
+    end
+  end
+end
